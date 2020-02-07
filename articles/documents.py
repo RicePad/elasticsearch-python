@@ -1,43 +1,60 @@
-from elasticsearch_dsl import analyzer
+from django_elasticsearch_dsl import (
+    DocType,
+    fields,
+    Index,
+)
 
-from django_elasticsearch_dsl import DocType, Index, fields 
+from cars.models import (
+    Car,
+    Manufacturer,
+)
 
-from articles import models as articles_models
+car_index = Index('cars')
 
-article_index = Index('articles')
-article_index.settings(
+car_index.settings(
     number_of_shards=1,
     number_of_replicas=0
 )
 
-html_strip = analyzer(
-    'html_strip',
-    tokenizer="standard",
-    filter=["standard", "lowercase", "stop", "snowball"],
-    char_filter=["html_strip"]
-)  
 
-@article_index.doc_type
-class ArticleDocument(DocType):
-    """Article elasticsearch document"""
-
-    id = fields.IntegerField(attr='id')
-    title = fields.StringField(
-        analyzer=html_strip,
+@car_index.doc_type
+class CarDocument(DocType):
+    name = fields.TextField(
+        attr='name',
         fields={
-            'raw': fields.StringField(analyzer='keyword'),
+            'suggest': fields.Completion(),
         }
     )
-    body = fields.TextField(
-        analyzer=html_strip,
-        fields={
-            'raw': fields.TextField(analyzer='keyword'),
+    manufacturer = fields.ObjectField(
+        properties={
+            'name': fields.TextField(),
+            'country_code': fields.TextField(),
         }
     )
-    author = fields.IntegerField(attr='author_id')
-    created = fields.DateField()
-    modified = fields.DateField()
-    pub_date = fields.DateField()
+    auction_title = fields.TextField(attr='get_auction_title')
+    points = fields.IntegerField()
+
+    def prepare_points(self, instance):
+        if instance.color == 'silver':
+            return 2
+        return 1
 
     class Meta:
-        model = articles_models.Article 
+        model = Car
+        fields = [
+            'id',
+            'color',
+            'description',
+            'type',
+        ]
+
+        related_models = [Manufacturer]
+
+    def get_queryset(self):
+        return super().get_queryset().select_related(
+            'manufacturer'
+        )
+
+    def get_instances_from_related(self, related_instance):
+        if isinstance(related_instance, Manufacturer):
+            return related_instance.car_set.all()
